@@ -89,7 +89,7 @@ resource "azurerm_subnet_network_security_group_association" "subnet_nsg_associa
 
 resource "azurerm_linux_virtual_machine" "staging_vm" {
   #for_each = length(var.vm)
-  count =var.compute_count
+  count = var.compute_count
 
   name                = "staging_vm_${count.index + 1}"
   resource_group_name = azurerm_resource_group.staging_rg.name
@@ -97,7 +97,7 @@ resource "azurerm_linux_virtual_machine" "staging_vm" {
   size                = "Standard_B1S"
   #need to check if standard_b1s right size
   admin_username = "kaliadmin"
-  
+
   #looks like i had to specify count again wit this resource block
   #count = var.compute_count
 
@@ -109,7 +109,7 @@ resource "azurerm_linux_virtual_machine" "staging_vm" {
     username   = "adminuser"
     public_key = file("~/.ssh/id_rsa.pub")
   }
-
+  # ** provisioner or other ways to install apache2 server and start the service. ** need to do 
   os_disk {
     caching              = "ReadWrite"
     storage_account_type = "Standard_LRS"
@@ -121,4 +121,80 @@ resource "azurerm_linux_virtual_machine" "staging_vm" {
     sku       = "22_04-lts"
     version   = "latest"
   }
+}
+
+#Simple Storage account and added random characters for namemanually as it should be globally unique
+resource "azurerm_storage_account" "staging_storage" {
+  name                     = "${var.name}storagekjadh"
+  resource_group_name      = azurerm_resource_group.staging_rg.name
+  location                 = azurerm_resource_group.staging_rg.location
+  account_tier             = "Standard"
+  account_replication_type = "LRS"
+}
+
+# Creating a public ip for public facing Load Balancer 
+
+resource "azurerm_public_ip" "staging_lb_pubip" {
+  name                = "${var.name}_lb_pubip"
+  resource_group_name = azurerm_resource_group.staging_rg.name
+  location            = azurerm_resource_group.staging_rg.location
+  allocation_method   = "Static"
+}
+
+# loadbalancer resouce block and assigning public ip to lb
+resource "azurerm_lb" "staging_lb" {
+  name                = "${var.name}_lb"
+  resource_group_name = azurerm_resource_group.staging_rg.name
+  location            = azurerm_resource_group.staging_rg.location
+  sku                 = "Basic"
+
+  frontend_ip_configuration {
+    name                 = "PublicIPAddress"
+    public_ip_address_id = azurerm_public_ip.staging_lb_pubip.id
+  }
+}
+# Giving a name for LB back end
+resource "azurerm_lb_backend_address_pool" "staging_lb_backend" {
+  loadbalancer_id = azurerm_lb.staging_lb.id
+  name            = "BackEnd_Pool_name"
+}
+
+# Two NIC are being added as Backend address of LB backend
+resource "azurerm_lb_backend_address_pool_address" "staging_lb_backend_pool" {
+  count = var.compute_count
+  #Instead of a giving a random name, i've assigned NIC name so its easy to relate
+  name                    = azurerm_network_interface.staging_nic[count.index].name
+  backend_address_pool_id = azurerm_lb_backend_address_pool.staging_lb_backend.id
+  # Basic SKU LB can't be assigned ip address directly ***
+  ip_address = azurerm_network_interface.staging_nic[count.index].private_ip_address
+}
+
+# LB Inbound rule 
+resource "azurerm_lb_rule" "lb_rule1" {
+  loadbalancer_id                = azurerm_lb.staging_lb.id
+  name                           = "http-inbound"
+  protocol                       = "Tcp"
+  frontend_port                  = 80
+  backend_port                   = 80
+  frontend_ip_configuration_name = "PublicIPAddress"
+  # hardcoded front end ip name of lb instead of referencing it!!!
+}
+resource "azurerm_lb_probe" "http_heath_probe" {
+  loadbalancer_id = azurerm_lb.staging_lb.id
+  name            = "http-probe"
+  port            = 80
+}
+# DNS zone - using data block to access DNS
+
+data "azurerm_dns_zone" "dns_zone" {
+  name                = "ganeshsaravanan.online"
+  resource_group_name = "testRg"
+}
+#adding 'A record' for dns zone and referencing public ip of Load bal
+resource "azurerm_dns_a_record" "www" {
+  name                = "www"
+  zone_name           = data.azurerm_dns_zone.dns_zone.name
+  resource_group_name = azurerm_resource_group.staging_rg.name
+  ttl                 = 300
+  target_resource_id  = azurerm_public_ip.staging_lb_pubip.id
 }
