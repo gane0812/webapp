@@ -19,22 +19,37 @@ resource "azurerm_resource_group" "staging_rg" {
   location = "East US"
 }
 
-# going to use the exisitng azure vnet 
-data "azurerm_virtual_network" "vnet" {
+# going to use the exisitng azure vnet  ---This errored for resources creation like subnet , DNS Zone 
+/*data "azurerm_virtual_network" "vnet" {
   name                = "terraform_vnet"
   resource_group_name = "testRg"
+}
+*/
+resource "azurerm_virtual_network" "staging_vnet" {
+  name                = "${var.name}_vnet"
+  location            = azurerm_resource_group.staging_rg.location
+  resource_group_name = azurerm_resource_group.staging_rg.name
+  address_space       = ["10.0.0.0/16"]
 }
 
 resource "azurerm_subnet" "staging_subnet" {
   name                 = "${var.name}_subnet"
   resource_group_name  = azurerm_resource_group.staging_rg.name
-  virtual_network_name = data.azurerm_virtual_network.vnet.name
+  virtual_network_name = azurerm_virtual_network.staging_vnet.name
   address_prefixes     = ["10.0.1.0/24"]
   #This staging_subnet will remain in azure portal even if the terraform config is destroyed
-  lifecycle {
+ /* lifecycle {
     prevent_destroy = true
-  }
+  }*/
 }
+#testing public ip
+/*resource "azurerm_public_ip" "test_pubip" {
+  count               = var.compute_count
+  name                = "${var.name}_pubip${count.index + 1}"
+  resource_group_name = azurerm_resource_group.staging_rg.name
+  location            = azurerm_resource_group.staging_rg.location
+  allocation_method   = "Static"
+} */
 
 resource "azurerm_network_interface" "staging_nic" {
   #this is going to create two Nic for two compute sources
@@ -78,8 +93,22 @@ resource "azurerm_network_security_group" "staging_nsg" {
     source_address_prefix      = "*"
     destination_address_prefix = "*"
   }
+  # to be deleted after testing
+  security_rule{
+  name                        = "ssh-inbound"
+  priority                    = 120
+  direction                   = "Inbound"
+  access                      = "Allow"
+  protocol                    = "Tcp"
+  source_port_range           = "*"
+  destination_port_range      = "*"
+  source_address_prefix       = "*"
+  destination_address_prefix  = "*"
+  # if all inbounds are open , I can reach the apache server! 
+}
 
 }
+
 #associate NSG rules to Staging_subnet
 
 resource "azurerm_subnet_network_security_group_association" "subnet_nsg_association" {
@@ -87,14 +116,20 @@ resource "azurerm_subnet_network_security_group_association" "subnet_nsg_associa
   network_security_group_id = azurerm_network_security_group.staging_nsg.id
 }
 
+# associate nsg to nics
+resource "azurerm_network_interface_security_group_association" "nic_nsg_association" {
+  count = var.compute_count
+  network_interface_id      = azurerm_network_interface.staging_nic[count.index].id
+  network_security_group_id = azurerm_network_security_group.staging_nsg.id
+}
 resource "azurerm_linux_virtual_machine" "staging_vm" {
   #for_each = length(var.vm)
   count = var.compute_count
 
-  name                = "staging_vm_${count.index + 1}"
+  name                = "stagingvm${count.index + 1}"
   resource_group_name = azurerm_resource_group.staging_rg.name
   location            = azurerm_resource_group.staging_rg.location
-  size                = "Standard_B1S"
+  size                = "Standard_B1s"
   #need to check if standard_b1s right size
   admin_username = "kaliadmin"
 
@@ -106,14 +141,25 @@ resource "azurerm_linux_virtual_machine" "staging_vm" {
   ]
 
   admin_ssh_key {
-    username   = "adminuser"
+    username   = "kaliadmin"
     public_key = file("~/.ssh/id_rsa.pub")
   }
-  # ** provisioner or other ways to install apache2 server and start the service. ** need to do 
+
   os_disk {
     caching              = "ReadWrite"
     storage_account_type = "Standard_LRS"
   }
+
+  # below is script to install, start apache2 
+  custom_data = filebase64("customdata.tpl")
+
+  # provisioner to send the name of virtual machine to customdata script 
+  # idea is on LBalancing, i want to know which vm is the request being sent to 
+  /*provisioner "local-exec" {
+    command = templatefile("customdata.tpl", {
+      vmname = self.name
+    })
+  } */
 
   source_image_reference {
     publisher = "Canonical"
@@ -146,7 +192,8 @@ resource "azurerm_lb" "staging_lb" {
   name                = "${var.name}_lb"
   resource_group_name = azurerm_resource_group.staging_rg.name
   location            = azurerm_resource_group.staging_rg.location
-  sku                 = "Basic"
+  #sku                 = "Basic"
+  #basic sku had error referencing public ip so commented it
 
   frontend_ip_configuration {
     name                 = "PublicIPAddress"
@@ -154,19 +201,20 @@ resource "azurerm_lb" "staging_lb" {
   }
 }
 # Giving a name for LB back end
-resource "azurerm_lb_backend_address_pool" "staging_lb_backend" {
+resource "azurerm_lb_backend_address_pool" "staging_lb_backend_address_pool" {
   loadbalancer_id = azurerm_lb.staging_lb.id
   name            = "BackEnd_Pool_name"
 }
 
 # Two NIC are being added as Backend address of LB backend
-resource "azurerm_lb_backend_address_pool_address" "staging_lb_backend_pool" {
+resource "azurerm_lb_backend_address_pool_address" "staging_lb_backend_address_pool_address" {
   count = var.compute_count
   #Instead of a giving a random name, i've assigned NIC name so its easy to relate
   name                    = azurerm_network_interface.staging_nic[count.index].name
-  backend_address_pool_id = azurerm_lb_backend_address_pool.staging_lb_backend.id
+  backend_address_pool_id = azurerm_lb_backend_address_pool.staging_lb_backend_address_pool.id
   # Basic SKU LB can't be assigned ip address directly ***
-  ip_address = azurerm_network_interface.staging_nic[count.index].private_ip_address
+  ip_address         = azurerm_network_interface.staging_nic[count.index].private_ip_address
+  virtual_network_id = azurerm_virtual_network.staging_vnet.id
 }
 
 # LB Inbound rule 
@@ -177,6 +225,8 @@ resource "azurerm_lb_rule" "lb_rule1" {
   frontend_port                  = 80
   backend_port                   = 80
   frontend_ip_configuration_name = "PublicIPAddress"
+  backend_address_pool_ids       = [azurerm_lb_backend_address_pool.staging_lb_backend_address_pool.id]
+  probe_id                       = azurerm_lb_probe.http_heath_probe.id
   # hardcoded front end ip name of lb instead of referencing it!!!
 }
 resource "azurerm_lb_probe" "http_heath_probe" {
@@ -186,14 +236,14 @@ resource "azurerm_lb_probe" "http_heath_probe" {
 }
 # DNS zone - using data block to access DNS
 
-data "azurerm_dns_zone" "dns_zone" {
+resource "azurerm_dns_zone" "dns_zone" {
   name                = "ganeshsaravanan.online"
-  resource_group_name = "testRg"
+  resource_group_name = azurerm_resource_group.staging_rg.name
 }
 #adding 'A record' for dns zone and referencing public ip of Load bal
 resource "azurerm_dns_a_record" "www" {
   name                = "www"
-  zone_name           = data.azurerm_dns_zone.dns_zone.name
+  zone_name           = azurerm_dns_zone.dns_zone.name
   resource_group_name = azurerm_resource_group.staging_rg.name
   ttl                 = 300
   target_resource_id  = azurerm_public_ip.staging_lb_pubip.id
