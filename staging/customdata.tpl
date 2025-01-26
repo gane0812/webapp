@@ -23,7 +23,7 @@ echo "Creating a basic index.html..."
 echo "<html>
 <head><title>Welcome to Apache!</title></head>
 <body>
-<h1>Welcome to Ganesh's Web Server. This is running on ? </h1>
+<h1>Welcome to Ganesh's Web Server. This is running on $(hostname) </h1>
 </body>
 </html>" | sudo tee /var/www/html/index.html > /dev/null
 

@@ -248,3 +248,13 @@ resource "azurerm_dns_a_record" "www" {
   ttl                 = 300
   target_resource_id  = azurerm_public_ip.staging_lb_pubip.id
 }
+
+# To only resources inside subnet can access the storage network
+/*resource "azurerm_storage_account_network_rules" "staging_storage_network_rules" {
+  storage_account_id = azurerm_storage_account.example.id
+
+  default_action             = "Allow"
+  virtual_network_subnet_ids = [azurerm_subnet.staging_subnet.id]
+} */
+
+#Todo List
