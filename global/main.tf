@@ -14,5 +14,6 @@ provider "azurerm" {
 }
 
 module "webapp_staging" {
-    source="./staging"
+    source="../staging"
+  
 }

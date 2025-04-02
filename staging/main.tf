@@ -94,7 +94,7 @@ resource "azurerm_network_security_group" "staging_nsg" {
     destination_address_prefix = "*"
   }
   # to be deleted after testing
-  security_rule{
+  /*security_rule{
   name                        = "ssh-inbound"
   priority                    = 120
   direction                   = "Inbound"
@@ -105,7 +105,7 @@ resource "azurerm_network_security_group" "staging_nsg" {
   source_address_prefix       = "*"
   destination_address_prefix  = "*"
   # if all inbounds are open , I can reach the apache server! 
-}
+} */
 
 }
 
@@ -115,13 +115,15 @@ resource "azurerm_subnet_network_security_group_association" "subnet_nsg_associa
   subnet_id                 = azurerm_subnet.staging_subnet.id
   network_security_group_id = azurerm_network_security_group.staging_nsg.id
 }
-
+/*  -- Mike said associating to either subnet or nic is enough
 # associate nsg to nics
 resource "azurerm_network_interface_security_group_association" "nic_nsg_association" {
   count = var.compute_count
   network_interface_id      = azurerm_network_interface.staging_nic[count.index].id
   network_security_group_id = azurerm_network_security_group.staging_nsg.id
 }
+*/
+
 resource "azurerm_linux_virtual_machine" "staging_vm" {
   #for_each = length(var.vm)
   count = var.compute_count
@@ -258,3 +260,4 @@ resource "azurerm_dns_a_record" "www" {
 } */
 
 #Todo List
+#remove nsg for nic

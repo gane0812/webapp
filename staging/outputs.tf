@@ -6,8 +6,3 @@ output "virtual_network_id" {
 output "Lb_frontend_ip" {
   value = resource.azurerm_public_ip.staging_lb_pubip.ip_address
 }
-
-/*output "ip_address_for_vms" { 
-value = 
-}
-*/
