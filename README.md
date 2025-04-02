@@ -30,4 +30,4 @@ This repository contains Terraform code to deploy a **basic load-balanced web ap
 4. **Avoid using Terraform provisioners** and switch to tools like **Ansible** for better configuration management.
 
 
-![WebApp Architecture](3-Tier Arch.png)
+![WebApp Architecture](3-Tier%20Arch.png)
